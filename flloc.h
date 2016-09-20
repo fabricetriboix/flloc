@@ -13,3 +13,127 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#ifndef FLLOC_h_
+#define FLLOC_h_
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdlib.h>
+#include <stdarg.h>
+
+
+/** malloc-like function
+ *
+ * @param size [in] As `malloc(3)`
+ * @param file [in] Source file; maybe be NULL
+ * @param line [in] Line number
+ *
+ * @return As `malloc(3)`
+ */
+void* FllocMalloc(size_t size, const char* file, int line);
+
+
+/** calloc-like function
+ *
+ * @param nmemb [in] As `calloc(3)`
+ * @param size  [in] As `calloc(3)`
+ * @param file  [in] Source file; maybe be NULL
+ * @param line  [in] Line number
+ *
+ * @return As `calloc(3)`
+ */
+void* FllocCalloc(size_t nmemb, size_t size, const char* file, int line);
+
+
+/** realloc-like function
+ *
+ * @param ptr  [in] As `realloc(3)`
+ * @param size [in] As `realloc(3)`
+ * @param file  [in] Source file; maybe be NULL
+ * @param line  [in] Line number
+ *
+ * @return As `realloc(3)`
+ */
+void* FllocRealloc(void* ptr, size_t size, const char* file, int line);
+
+
+/** free-like function
+ *
+ * @param ptr  [in] As `free(3)`
+ * @param file [in] Source file; maybe be NULL
+ * @param line [in] Line number
+ *
+ * @return As `free(3)`
+ */
+void FllocFree(void* ptr, const char* file, int line);
+
+
+/** strdup-like function
+ *
+ * @param s    [in] String to duplicate; must not be NULL
+ * @param file [in] Source file; maybe be NULL
+ * @param line [in] Line number
+ *
+ * @return As `strdup(3)`
+ */
+char* FllocStrdup(const char* s, const char* file, int line);
+
+
+/** strndup-like function
+ *
+ * @param s    [in] String to duplicate
+ * @param n    [in] Maximum number of characters to duplicate (not including
+ *                  the terminating null character)
+ * @param file [in] Source file; maybe be NULL
+ * @param line [in] Line number
+ *
+ * @return As `strndup(3)`
+ */
+char* FllocStrndup(const char* s, size_t n, const char* file, int line);
+
+
+/** Print a message in the log file */
+#define FllocPrintf(_format, ...) \
+        FllocMsg(__FILE__, __LINE__, (_format), ## __VA_ARGS__)
+
+
+/** Print a message in the log file (va-arg style) */
+#define FllocVPrintf(_format, ap) \
+        FllocVMsg(__FILE__, __LINE__, (_format), (ap))
+
+
+void FllocMsg(const char* file, int line, const char* format, ...)
+#ifdef __GNUC__
+	__attribute__ (( format(printf, 3, 4) ))
+#endif
+;
+
+
+void FllocVMsg(const char* file, int line, const char* format, va_list ap);
+
+
+#ifdef FLLOC_ENABLED
+
+#define malloc(size) FllocMalloc((size), __FILE__, __LINE__)
+
+#define calloc(nmemb, size) FllocCalloc((nmemb), (size), __FILE__, __LINE__)
+
+#define realloc(ptr, size) FllocRealloc((ptr), (size), __FILE__, __LINE__)
+
+#define free(ptr) FllocFree(ptr)
+
+#define strdup(s) FllocStrdup((s), __FILE__, __LINE__)
+
+#define strndup(s, n) FllocStrndup((s), (n), __FILE__, __LINE__)
+
+#endif /* FLLOC_ENABLED */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* FLLOC_h_ */
