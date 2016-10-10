@@ -17,7 +17,6 @@
 #undef FLLOC_ENABLED
 #include "flloc.h"
 #include <stdio.h>
-#include <stdarg.h>
 #include <pthread.h>
 
 
@@ -31,26 +30,17 @@
 #define FLLOC_FILL 0xa5
 
 
-/** The different types of things to log */
-typedef enum {
-    EV_MALLOC,
-    EV_CALLOC,
-    EV_REALLOC,
-    EV_FREE,
-    EV_BADFREE,
-    EV_STRDUP,
-    EV_STRNDUP,
-    EV_PLOUGH,
-    EV_FAIL,
-    EV_USER
-} Event;
+/** Number of records in hash table; must be 64K */
+#define REC_COUNT (64* 1024)
 
 
 /** A record of an allocated memory area */
 struct Record {
     struct Record* next; // single linked list
     void*          real;
-    unsigned long  size;
+    size_t         size;
+    const char*    file;
+    int            line;
 };
 typedef struct Record Record;
 
@@ -61,15 +51,16 @@ typedef struct Record Record;
  +------------------*/
 
 
+/** Global mutex */
+static pthread_mutex_t gMutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+/** Is flloc initialised? */
 static int gInitialised = 0;
 
 
-/** Mutex for writing into the file */
-static pthread_mutex_t gFileMutex = PTHREAD_MUTEX_INITIALIZER;
-
-
-/** Where to write logs */
-static FILE* gFile = NULL;
+/** Where to write output */
+static FILE* gFile = stderr;
 
 
 /** Size of the guard blocks, in bytes
@@ -79,7 +70,7 @@ static FILE* gFile = NULL;
  * they will be used to check the program didn't write outside the originally
  * allocated size.
  */
-static unsigned long gGuardSize_B = 0;
+static size_t gGuardSize_B = 1024;
 
 
 /** Rudimentary hash table of memory allocation records
@@ -88,11 +79,7 @@ static unsigned long gGuardSize_B = 0;
  * That makes 16 bits which should hopefully be more or less randomly
  * distributed.
  */
-static Record gRecords[64* 1024];
-
-
-/** Mutex to protect the above hash table */
-static pthread_mutex_t gRecMutex = PTHREAD_MUTEX_INITIALIZER;
+static Record gRecords[REC_COUNT];
 
 
 
@@ -110,7 +97,7 @@ static pthread_mutex_t gRecMutex = PTHREAD_MUTEX_INITIALIZER;
 static void recordInsert(Record* rec);
 
 
-/** Remove a record identified by its key
+/** Remove a record identified by its key from the hash table
  *
  * @param real [in] Key identifying the record to delete
  *
@@ -130,26 +117,27 @@ static void initIfNeeded(void);
 static void parseConfig(const char* name, const char* value);
 
 
+/** Allocate memory
+ *
+ * This function allocates (or re-allocates if `old` is not NULL) memory. It
+ * updates the hash table accordingly to keep track of allocated memory chunks.
+ *
+ * @param p [in] Pointer to memory to re-allocate; may be NULL
+ * @param size [in] Number of bytes to allocate; may be NULL
+ * @param file [in] Path to source file; may be NULL
+ * @param line [in] Line in above source file; may be <=0
+ *
+ * @return Pointer usable by the caller, or NULL if failed uto allocate
+ */
+static void* doRealloc(void* old, size_t size, const char* file, int line);
+
+
 /** Initialise the guard buffers if applicable */
 static void fillGuard(Record* rec);
 
 
-/** Check for signs of gardening in the guard buffers */
+/** Check for signs of corruption in the guard buffers */
 static void checkForCorruption(Record* rec);
-
-
-/** Write a formatted string to the log file */
-static void log(Event ev, const char* file, int line,
-        const char* format, ...)
-#ifdef __GNUC__
-    __attribute__(( format(printf, 4, 5) ));
-#endif
-    ;
-
-
-/** Write a formatted string to the log file */
-static void vlog(Event ev, const char* file, int line,
-        const char* format, va_list ap);
 
 
 
@@ -158,89 +146,47 @@ static void vlog(Event ev, const char* file, int line,
  +------------------------------------*/
 
 
+void FllocCheck(void)
+{
+    pthread_mutex_lock(&gMutex);
+    initIfNeeded();
+    int i;
+    // TODO
+    pthread_mutex_unlock(&gMutex);
+}
+
+
 void* FllocMalloc(size_t size, const char* file, int line)
 {
+    pthread_mutex_lock(&gMutex);
     initIfNeeded();
-
-    unsigned long recsize = sizeof(Record);
-    Record* rec = malloc(recsize);
-    if (NULL == rec) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", recsize, recsize);
-        return NULL;
-    }
-    unsigned long capacity = size + (2 * gGuardSize_B);
-    rec->size = size;
-    rec->real = malloc(capacity);
-    if (NULL == rec->real) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", rec->size, capacity);
-        free(rec);
-        return NULL;
-    }
-    fillGuard(rec);
-    recordInsert(rec);
-
-    void* ptr = rec->real + gGuardSize_B;
-    log(EV_MALLOC, file, line, "ptr=%p (%p) size=%lu (%lu)",
-            ptr, rec->real, rec->size, capacity);
+    void* ptr = doRealloc(NULL, size, file, line);
+    pthread_mutex_unlock(&gMutex);
     return ptr;
 }
 
 
 void* FllocCalloc(size_t nmemb, size_t mbsize, const char* file, int line)
 {
+    pthread_mutex_lock(&gMutex);
     initIfNeeded();
-
-    unsigned long recsize = sizeof(Record);
-    Record* rec = malloc(recsize);
-    if (NULL == rec) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", recsize, recsize);
-        return NULL;
+    size_t size = nmemb * mbsize;
+    void* ptr = doRealloc(NULL, size, file, line);
+    if (ptr != NULL) {
+        // NB: `calloc(3)` is supposed to initialise the memory to 0
+        memset(ptr, 0, size);
     }
-    rec->size = nmemb * mbsize;
-    unsigned long capacity = rec->size + (2 * gGuardSize_B);
-    rec->real = malloc(capacity);
-    if (NULL == rec->real) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", rec->size, capacity);
-        free(rec);
-        return NULL;
-    }
-    // NB: `calloc(3)` is supposed to initialise the memory to 0
-    memset(rec->real + gGuardSize_B, 0, rec->size);
-    fillGuard(rec);
-    recordInsert(rec);
-
-    void* ptr = rec->real + gGuardSize_B;
-    log(EV_CALLOC, file, line, "ptr=%p (%p) size=%lu (%lu) nmemb=%lu mbsize=%lu",
-            ptr, rec->real, rec->size, capacity,
-            (unsigned long)nmemb, (unsigned long)mbsize);
+    pthread_mutex_unlock(&gMutex);
     return ptr;
 }
 
 
-void* FllocRealloc(void* p, size_t size, const char* file, int line)
+void* FllocRealloc(void* old, size_t size, const char* file, int line)
 {
+    pthread_mutex_lock(&gMutex);
     initIfNeeded();
-
-    unsigned long recsize = sizeof(Record);
-    Record* rec = malloc(recsize);
-    if (NULL == rec) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", recsize, recsize);
-        return NULL;
-    }
-    unsigned long capacity = size + (2 * gGuardSize_B);
-    rec->size = size;
-    rec->real = realloc(p, capacity);
-    if (NULL == rec->real) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", rec->size, capacity);
-        free(rec);
-        return NULL;
-    }
-    fillGuard(rec);
-    recordInsert(rec);
-
-    void* ptr = rec->real + gGuardSize_B;
-    log(EV_REALLOC, file, line, "ptr=%p (%p) size=%lu (%lu)",
-            ptr, rec->real, rec->size, capacity);
+    void* ptr = doRealloc(old, size, file, line);
+    pthread_mutex_unlock(&gMutex);
     return ptr;
 }
 
@@ -250,102 +196,52 @@ void FllocFree(void* ptr, const char* file, int line)
     if (NULL == ptr) {
         return;
     }
+    pthread_mutex_lock(&gMutex);
     initIfNeeded();
-
-    void* real = ptr - gGuardSize_B;
-    Record* rec = recordRemove(real);
+    Record* rec = recordRemove(ptr - gGuardSize_B);
     if (NULL == rec) {
-        log(EV_BADFREE, file, line, "ptr=%p(%p)", ptr, real);
-    } else {
-        checkForCorruption(rec);
-        log(EV_FREE, file, line, "ptr=%p (%p)", ptr, real);
+        fprintf(stderr, "FLLOC FATAL: Unknown pointer %p when freeing memory\n",
+                ptr);
+        abort();
     }
-    free(real);
+    checkForCorruption(rec);
+    free(rec->real);
     free(rec);
+    pthread_mutex_unlock(&gMutex);
 }
 
 
 char* FllocStrdup(const char* s, const char* file, int line)
 {
     if (NULL == s) {
+        fprintf(stderr, "FLLOC FATAL: strdup() called with NULL argument\n");
         abort();
     }
-    initIfNeeded();
-
-    unsigned long recsize = sizeof(Record);
-    Record* rec = malloc(recsize);
-    if (NULL == rec) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", recsize, recsize);
-        return NULL;
+    size_t size = strlen(s);
+    char* str = FllocMalloc(size + 1, file, line);
+    if (str != NULL) {
+        strcpy(str, s);
     }
-    rec->size = strlen(s) + 1;
-    unsigned long capacity = rec->size + (2 * gGuardSize_B);
-    rec->real = malloc(capacity);
-    if (NULL == rec->real) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", rec->size, capacity);
-        free(rec);
-        return NULL;
-    }
-    fillGuard(rec);
-    recordInsert(rec);
-
-    char* ptr = rec->real + gGuardSize_B;
-    log(EV_STRDUP, file, line, "ptr=%p (%p) size=%lu (%lu)",
-            ptr, rec->real, rec->size, capacity);
-    strcpy(ptr, s);
-    return ptr;
+    return str;
 }
 
 
 char* FllocStrndup(const char* s, size_t n, const char* file, int line)
 {
     if ((NULL == s) && (n > 0)) {
+        fprintf(stderr, "FLLOC FATAL: strndup() called with NULL argument "
+                "and >0 length\n");
         abort();
     }
-    initIfNeeded();
-
-    unsigned long recsize = sizeof(Record);
-    Record* rec = malloc(recsize);
-    if (NULL == rec) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", recsize, recsize);
-        return NULL;
+    if ((s != NULL) && (strlen(s) < n)) {
+        n = strlen(s);
     }
-    rec->size = strlen(s);
-    if (rec->size > n) {
-        rec->size = n;
+    char* str = FllocMalloc(n + 1, file, line);
+    if (str != NULL) {
+        strncpy(str, s, n);
+        str[n] = '\0';
     }
-    rec->size++;
-    unsigned long capacity = rec->size + (2 * gGuardSize_B);
-    rec->real = malloc(capacity);
-    if (NULL == rec->real) {
-        log(EV_FAIL, file, line, "size=%lu(%lu)", rec->size, capacity);
-        free(rec);
-        return NULL;
-    }
-    fillGuard(rec);
-    recordInsert(rec);
-
-    char* ptr = rec->real + gGuardSize_B;
-    log(EV_STRNDUP, file, line, "ptr=%p (%p) size=%lu (%lu)",
-            ptr, rec->real, rec->size, capacity);
-    strncpy(ptr, s, rec->size);
-    ptr[rec->size - 1] = '\0';
-    return ptr;
-}
-
-
-void FllocMsg(const char* file, int line, const char* format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vlog(EV_USER, file, line, format, ap);
-    va_end(ap);
-}
-
-
-void FllocVMsg(const char* file, int line, const char* format, va_list ap)
-{
-    vlog(EV_USER, file, line, format, ap);
+    return str;
 }
 
 
@@ -363,8 +259,6 @@ static inline uint16_t ptr2index(void* real)
 
 static void recordInsert(Record* rec)
 {
-    pthread_mutex_lock(&gRecMutex);
-
     uint16_t index = ptr2index(rec->real);
     rec->next = NULL;
     Record* curr = &(gRecords[index]);
@@ -372,16 +266,12 @@ static void recordInsert(Record* rec)
         curr = curr->next;
     }
     curr->next = rec;
-
-    pthread_mutex_unlock(&gRecMutex);
 }
 
 
 #if 0
 static const Record* recordLookup(void* real)
 {
-    pthread_mutex_lock(&gRecMutex);
-
     uint16_t index = ptr2index(real);
     Record* rec = NULL;
     Record* curr = gRecords[index].next;
@@ -392,8 +282,6 @@ static const Record* recordLookup(void* real)
             curr = curr->next;
         }
     }
-
-    pthread_mutex_unlock(&gRecMutex);
     return rec;
 }
 #endif
@@ -401,8 +289,6 @@ static const Record* recordLookup(void* real)
 
 static Record* recordRemove(void* real)
 {
-    pthread_mutex_lock(&gRecMutex);
-
     uint16_t index = ptr2index(real);
     Record* rec = NULL;
     Record* curr = &(gRecords[index]);
@@ -414,8 +300,6 @@ static Record* recordRemove(void* real)
             curr = curr->next;
         }
     }
-
-    pthread_mutex_unlock(&gRecMutex);
     return rec;
 }
 
@@ -436,6 +320,7 @@ static void initIfNeeded(void)
 
     char* s = strdup(str);
     if (NULL == s) {
+        fprintf(stderr, "FLLOC FATAL: critical strdup() failed\n");
         abort();
     }
     char* saveptr;
@@ -456,7 +341,7 @@ static void initIfNeeded(void)
 static void parseConfig(const char* name, const char* value)
 {
     if (strcmp(name, "FILE") == 0) {
-        if (gFile != NULL) {
+        if ((gFile != NULL) && (gFile != stderr)) {
             fclose(gFile);
         }
         gFile = fopen(value, "w");
@@ -481,6 +366,56 @@ static void parseConfig(const char* name, const char* value)
 }
 
 
+static void* doRealloc(void* old, size_t size, const char* file, int line)
+{
+    if (0 == size) {
+        return NULL;
+    }
+
+    size_t capacity = size + (2 * gGuardSize_B);
+    void* real = malloc(capacity);
+    if (NULL == real) {
+        return NULL;
+    }
+
+    Record* rec = malloc(sizeof(*rec));
+    if (NULL == rec) {
+        free(real);
+        return NULL;
+    }
+
+    rec->real = real;
+    rec->size = size;
+    rec->file = file;
+    rec->line = line;
+    fillGuard(rec);
+    recordInsert(rec);
+
+    void* ptr = NULL;
+    if (real != NULL) {
+        ptr = real + gGuardSize_B;
+    }
+
+    if (old != NULL) {
+        rec = recordRemove(old - gGuardSize_B);
+        if (NULL == rec) {
+            fprintf(stderr,
+                    "FLLOC FATAL: Unknown pointer %p when doing reallocation\n",
+                    old);
+            abort();
+        }
+        checkForCorruption(rec);
+        if (rec->size < size) {
+            size = rec->size;
+        }
+        memcpy(ptr, old, size);
+        free(rec->real);
+        free(rec);
+    }
+    return ptr;
+}
+
+
 static void fillGuard(Record* rec)
 {
     if (gGuardSize_B > 0) {
@@ -492,12 +427,13 @@ static void fillGuard(Record* rec)
 
 static void checkForCorruption(Record* rec)
 {
-    unsigned long i;
+    size_t i;
     uint8_t* p = rec->real;
     for (i = 0; i < gGuardSize_B; i++) {
         if (*p != FLLOC_FILL) {
-            log(EV_PLOUGH, NULL, 0, "ptr=%p(%p) at=%p",
-                    rec->real + gGuardSize_B, rec->real, p);
+            fprintf(gFile, "FLLOC: Corruption detected at %p, "
+                    "from block allocated at %s:%d\n",
+                    p, rec->file, rec->line);
             return;
         }
         p++;
@@ -505,47 +441,11 @@ static void checkForCorruption(Record* rec)
     p = rec->real + gGuardSize_B + rec->size;
     for (i = 0; i < gGuardSize_B; i++) {
         if (*p != FLLOC_FILL) {
-            log(EV_PLOUGH, NULL, 0, "ptr=%p(%p) at=%p",
-                    rec->real + gGuardSize_B, rec->real, p);
+            fprintf(gFile, "FLLOC: Corruption detected at %p, "
+                    "from block allocated at %s:%d\n",
+                    p, rec->file, rec->line);
             return;
         }
         p++;
     }
-}
-
-
-static void log(Event ev, const char* file, int line,
-        const char* format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vlog(ev, file, line, format, ap);
-    va_end(ap);
-}
-
-
-static void vlog(Event ev, const char* file, int line,
-        const char* format, va_list ap)
-{
-    const char* name = "UNKNOWN";
-    switch (ev) {
-        case EV_MALLOC  : name = "MALLOC"; break;
-        case EV_CALLOC  : name = "CALLOC"; break;
-        case EV_REALLOC : name = "REALLLC"; break;
-        case EV_FREE    : name = "FREE"; break;
-        case EV_BADFREE : name = "BADFREE"; break;
-        case EV_STRDUP  : name = "STRDUP"; break;
-        case EV_STRNDUP : name = "STRNDUP"; break;
-        case EV_PLOUGH  : name = "PLOUGH"; break;
-        case EV_FAIL    : name = "NAME"; break;
-        case EV_USER    : name = "USER"; break;
-    }
-    if (NULL == file) {
-        file = "(null)";
-    }
-    pthread_mutex_lock(&gFileMutex);
-    fprintf(gFile, "%s [%s:%d] ", name, file, line);
-    vfprintf(gFile, format, ap);
-    fprintf(gFile, "\n");
-    pthread_mutex_unlock(&gFileMutex);
 }
