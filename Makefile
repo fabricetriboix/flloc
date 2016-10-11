@@ -14,8 +14,8 @@ clean:
 install: libflloc.a
 	mkdir -p $(PREFIX)/lib; \
 	mkdir -p $(PREFIX)/include; \
-	cp $< $(PREFIX)/lib; \
-	cp flloc.h $(PREFIX)/include
+	cp -af $< $(PREFIX)/lib; \
+	cp -af flloc.h $(PREFIX)/include
 
 libflloc.a: flloc.o
 	$(AR) $(ARFLAGS) $@ $^

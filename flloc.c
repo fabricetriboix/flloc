@@ -295,31 +295,28 @@ static void initIfNeeded(void)
     gFile = stderr;
 
     memset(gRecords, 0, sizeof(gRecords));
+    atexit(fllocCheck);
 
     const char* str = getenv("FLLOC_CONFIG");
-    if (NULL == str) {
-        return;
-    }
-
-    char* s = strdup(str);
-    if (NULL == s) {
-        fprintf(stderr, "FLLOC FATAL: critical strdup() failed\n");
-        abort();
-    }
-    char* saveptr;
-    char* token = strtok_r(s, ";", &saveptr);
-    while (token != NULL) {
-        char* saveptr2;
-        char* name = strtok_r(token, "=", &saveptr2);
-        char* value = strtok_r(NULL, "=", &saveptr2);
-        if ((name != NULL) && (value != NULL)) {
-            parseConfig(name, value);
+    if (str != NULL) {
+        char* s = strdup(str);
+        if (NULL == s) {
+            fprintf(stderr, "FLLOC FATAL: critical strdup() failed\n");
+            abort();
         }
-        token = strtok_r(NULL, ";", &saveptr);
+        char* saveptr;
+        char* token = strtok_r(s, ";", &saveptr);
+        while (token != NULL) {
+            char* saveptr2;
+            char* name = strtok_r(token, "=", &saveptr2);
+            char* value = strtok_r(NULL, "=", &saveptr2);
+            if ((name != NULL) && (value != NULL)) {
+                parseConfig(name, value);
+            }
+            token = strtok_r(NULL, ";", &saveptr);
+        }
+        free(s);
     }
-    free(s);
-
-    atexit(fllocCheck);
 }
 
 
@@ -441,7 +438,6 @@ static void checkForCorruption(Record* rec)
 static void fllocCheck(void)
 {
     pthread_mutex_lock(&gMutex);
-    initIfNeeded();
     int i;
     for (i = 0; i < REC_COUNT; i++) {
         Record* rec = gRecords[i].next;
