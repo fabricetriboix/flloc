@@ -14,9 +14,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#undef FLLOC_ENABLED
+#define FLLOC_DISABLED
 #include "flloc.h"
+#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <pthread.h>
 
 
@@ -60,7 +62,7 @@ static int gInitialised = 0;
 
 
 /** Where to write output */
-static FILE* gFile = stderr;
+static FILE* gFile = NULL;
 
 
 /** Size of the guard blocks, in bytes
@@ -151,7 +153,16 @@ void FllocCheck(void)
     pthread_mutex_lock(&gMutex);
     initIfNeeded();
     int i;
-    // TODO
+    for (i = 0; i < REC_COUNT; i++) {
+        Record* rec = gRecords[i].next;
+        while (rec != NULL) {
+            checkForCorruption(rec);
+            fprintf(gFile, "FLLOC: Memory leak detected: %p never freed; "
+                    "allocates from %s:%d\n",
+                    rec->real + gGuardSize_B, rec->file, rec->line);
+            rec = rec->next;
+        }
+    }
     pthread_mutex_unlock(&gMutex);
 }
 
@@ -310,6 +321,7 @@ static void initIfNeeded(void)
         return;
     }
     gInitialised = 1;
+    gFile = stderr;
 
     memset(gRecords, 0, sizeof(gRecords));
 

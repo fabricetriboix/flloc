@@ -16,7 +16,51 @@
 
 #include "flloc.h"
 #include <stdlib.h>
+#include <stdio.h>
+
+#define COUNT 100000
+static unsigned char* gPointers[COUNT];
+static int gSizes[COUNT];
 
 int main()
 {
+    int i;
+    for (i = 0; i < COUNT; i++) {
+        gSizes[i] = 10 + (2 * i);
+        gPointers[i] = malloc(gSizes[i]);
+    }
+
+    // Corrupt a couple of memory blocks
+    int fault1 = COUNT / 3;
+    int fault2 = (2 * COUNT) / 3;
+    gPointers[fault1][-4] = 0xff;
+    gPointers[fault2][gSizes[fault2] + 2] = 0x00;
+    const char* filename = "expected-corruptions.txt";
+    FILE* f = fopen(filename, "w");
+    if (NULL == f) {
+        fprintf(stderr, "Failed to create file '%s'\n", filename);
+        exit(1);
+    }
+    fprintf(f, "%p\n", &(gPointers[fault1][-4]));
+    fprintf(f, "%p\n", &(gPointers[fault2][gSizes[fault2] + 2]));
+    fclose(f);
+
+    // Do not free a couple of memory blocks, including one we just corrupted
+    filename = "expected-leaks.txt";
+    f = fopen(filename, "w");
+    if (NULL == f) {
+        fprintf(stderr, "Failed to create file '%s'\n", filename);
+        exit(1);
+    }
+    for (i = 0; i < COUNT; i++) {
+        if ((i != (fault1 + 1)) && (i != fault2)) {
+            free(gPointers[i]);
+        } else {
+            fprintf(f, "%p\n", gPointers[i]);
+        }
+    }
+    fclose(f);
+
+    FllocCheck();
+    return 0;
 }

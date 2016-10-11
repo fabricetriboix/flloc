@@ -125,7 +125,7 @@ void FllocMsg(const char* file, int line, const char* format, ...)
 void FllocVMsg(const char* file, int line, const char* format, va_list ap);
 
 
-#ifdef FLLOC_ENABLED
+#ifndef FLLOC_DISABLED
 
 #define malloc(size) FllocMalloc((size), __FILE__, __LINE__)
 
@@ -133,13 +133,13 @@ void FllocVMsg(const char* file, int line, const char* format, va_list ap);
 
 #define realloc(ptr, size) FllocRealloc((ptr), (size), __FILE__, __LINE__)
 
-#define free(ptr) FllocFree(ptr)
+#define free(ptr) FllocFree(ptr, __FILE__, __LINE__)
 
 #define strdup(s) FllocStrdup((s), __FILE__, __LINE__)
 
 #define strndup(s, n) FllocStrndup((s), (n), __FILE__, __LINE__)
 
-#endif /* FLLOC_ENABLED */
+#endif /* !FLLOC_DISABLED */
 
 #ifdef __cplusplus
 }
