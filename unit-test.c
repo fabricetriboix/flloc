@@ -17,6 +17,7 @@
 #include "flloc.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <mcheck.h>
 
 #define COUNT 100000
 static unsigned char* gPointers[COUNT];
@@ -24,6 +25,8 @@ static int gSizes[COUNT];
 
 int main()
 {
+    mtrace();
+
     int i;
     for (i = 0; i < COUNT; i++) {
         gSizes[i] = 10 + (2 * i);
@@ -52,8 +55,9 @@ int main()
         fprintf(stderr, "Failed to create file '%s'\n", filename);
         exit(1);
     }
+    int noleak = (getenv("MALLOC_TRACE") != NULL);
     for (i = 0; i < COUNT; i++) {
-        if ((i != (fault1 + 1)) && (i != fault2)) {
+        if (noleak || ((i != (fault1 + 1)) && (i != fault2))) {
             free(gPointers[i]);
         } else {
             fprintf(f, "%p\n", gPointers[i]);
@@ -62,5 +66,6 @@ int main()
     fclose(f);
 
     FllocCheck();
+    muntrace();
     return 0;
 }

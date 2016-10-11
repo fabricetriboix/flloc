@@ -10,11 +10,14 @@ if not os.path.exists("./unit-test"):
 
 outputTest = "test.txt"
 os.environ['FLLOC_CONFIG'] = "FILE={};GUARD=128".format(outputTest)
-os.unlink(outputTest)
+if os.path.exists(outputTest):
+    os.unlink(outputTest)
 expectedCorruptions = "expected-corruptions.txt"
-os.unlink(expectedCorruptions)
+if os.path.exists(expectedCorruptions):
+    os.unlink(expectedCorruptions)
 expectedLeaks = "expected-leaks.txt"
-os.unlink(expectedLeaks)
+if os.path.exists(expectedLeaks):
+    os.unlink(expectedLeaks)
 
 subprocess.check_call(["./unit-test"])
 
@@ -61,3 +64,14 @@ f.close()
 
 if not ok:
     sys.exit(1)
+
+# Check for memory leaks inside flloc
+os.environ['MALLOC_TRACE'] = "mtrace.txt"
+subprocess.check_call(["./unit-test"])
+mtrace = subprocess.check_output(["./run-mtrace.sh", "unit-test", "mtrace.txt"])
+if "flloc.c" in mtrace:
+    print("UNIT TEST FAIL: Memory leaks detected inside flloc itself!")
+    print("Run `mtrace unit-test mtrace.txt` for more information.")
+    sys.exit(1)
+
+print("All unit tests passed!")

@@ -21,8 +21,8 @@ Follow the steps:
 
     $ $EDITOR Makefile
     $ make
-    $ make test      # Run the unit tests
-    $ make install   # Install
+    $ ./run-tests.py    # Run the unit tests
+    $ make install      # Install
 
 TODO: How to use flloc
 
