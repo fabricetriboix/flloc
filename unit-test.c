@@ -65,7 +65,6 @@ int main()
     }
     fclose(f);
 
-    FllocCheck();
     muntrace();
     return 0;
 }

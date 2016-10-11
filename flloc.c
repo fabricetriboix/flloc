@@ -142,29 +142,14 @@ static void fillGuard(Record* rec);
 static void checkForCorruption(Record* rec);
 
 
+/** Function to be run at the very end to check for memory leaks */
+static void fllocCheck(void);
+
+
 
 /*------------------------------------+
  | Implementation of public functions |
  +------------------------------------*/
-
-
-void FllocCheck(void)
-{
-    pthread_mutex_lock(&gMutex);
-    initIfNeeded();
-    int i;
-    for (i = 0; i < REC_COUNT; i++) {
-        Record* rec = gRecords[i].next;
-        while (rec != NULL) {
-            checkForCorruption(rec);
-            fprintf(gFile, "FLLOC: Memory leak detected: %p never freed; "
-                    "allocates from %s:%d\n",
-                    rec->real + gGuardSize_B, rec->file, rec->line);
-            rec = rec->next;
-        }
-    }
-    pthread_mutex_unlock(&gMutex);
-}
 
 
 void* FllocMalloc(size_t size, const char* file, int line)
@@ -280,24 +265,6 @@ static void recordInsert(Record* rec)
 }
 
 
-#if 0
-static const Record* recordLookup(void* real)
-{
-    uint16_t index = ptr2index(real);
-    Record* rec = NULL;
-    Record* curr = gRecords[index].next;
-    while ((curr != NULL) && (NULL == rec)) {
-        if (curr->real == real) {
-            rec = curr;
-        } else {
-            curr = curr->next;
-        }
-    }
-    return rec;
-}
-#endif
-
-
 static Record* recordRemove(void* real)
 {
     uint16_t index = ptr2index(real);
@@ -347,6 +314,8 @@ static void initIfNeeded(void)
         token = strtok_r(NULL, ";", &saveptr);
     }
     free(s);
+
+    atexit(fllocCheck);
 }
 
 
@@ -460,4 +429,23 @@ static void checkForCorruption(Record* rec)
         }
         p++;
     }
+}
+
+
+static void fllocCheck(void)
+{
+    pthread_mutex_lock(&gMutex);
+    initIfNeeded();
+    int i;
+    for (i = 0; i < REC_COUNT; i++) {
+        Record* rec = gRecords[i].next;
+        while (rec != NULL) {
+            checkForCorruption(rec);
+            fprintf(gFile, "FLLOC: Memory leak detected: %p never freed; "
+                    "allocates from %s:%d\n",
+                    rec->real + gGuardSize_B, rec->file, rec->line);
+            rec = rec->next;
+        }
+    }
+    pthread_mutex_unlock(&gMutex);
 }

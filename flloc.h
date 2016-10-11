@@ -26,15 +26,6 @@ extern "C" {
 #include <stdarg.h>
 
 
-/** Check for memory leaks
- *
- * Calling this function will check for memory leaks detected at this point in
- * time. Typically, you should call this function once just before terminating
- * your program.
- */
-void FllocCheck(void);
-
-
 /** malloc-like function
  *
  * @param size [in] As `malloc(3)`
