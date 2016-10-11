@@ -84,6 +84,10 @@ static size_t gGuardSize_B = 1024;
 static Record gRecords[REC_COUNT];
 
 
+/** Flag indicating whether memory leaks or corruptions have been detected */
+static int gAllGood = 1;
+
+
 
 /*-------------------------------+
  | Private function declarations |
@@ -415,6 +419,7 @@ static void checkForCorruption(Record* rec)
             fprintf(gFile, "FLLOC: Corruption detected at %p, "
                     "from block allocated at %s:%d\n",
                     p, rec->file, rec->line);
+            gAllGood = 0;
             return;
         }
         p++;
@@ -425,6 +430,7 @@ static void checkForCorruption(Record* rec)
             fprintf(gFile, "FLLOC: Corruption detected at %p, "
                     "from block allocated at %s:%d\n",
                     p, rec->file, rec->line);
+            gAllGood = 0;
             return;
         }
         p++;
@@ -445,7 +451,11 @@ static void fllocCheck(void)
                     "allocates from %s:%d\n",
                     rec->real + gGuardSize_B, rec->file, rec->line);
             rec = rec->next;
+            gAllGood = 0;
         }
     }
     pthread_mutex_unlock(&gMutex);
+    if (gAllGood) {
+        fprintf(gFile, "FLLOC: No memory leaks nor corruptions detected\n");
+    }
 }
