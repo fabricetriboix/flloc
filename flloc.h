@@ -23,6 +23,7 @@ extern "C" {
 #endif
 
 #include <stdlib.h>
+#include <string.h>
 #include <stdarg.h>
 
 
@@ -118,16 +119,34 @@ void FllocVMsg(const char* file, int line, const char* format, va_list ap);
 
 #ifndef FLLOC_DISABLED
 
+#ifdef malloc
+#undef malloc
+#endif
 #define malloc(size) FllocMalloc((size), __FILE__, __LINE__)
 
+#ifdef calloc
+#undef calloc
+#endif
 #define calloc(nmemb, size) FllocCalloc((nmemb), (size), __FILE__, __LINE__)
 
+#ifdef realloc
+#undef realloc
+#endif
 #define realloc(ptr, size) FllocRealloc((ptr), (size), __FILE__, __LINE__)
 
+#ifdef free
+#undef free
+#endif
 #define free(ptr) FllocFree(ptr, __FILE__, __LINE__)
 
+#ifdef strdup
+#undef strdup
+#endif
 #define strdup(s) FllocStrdup((s), __FILE__, __LINE__)
 
+#ifdef strndup
+#undef strndup
+#endif
 #define strndup(s, n) FllocStrndup((s), (n), __FILE__, __LINE__)
 
 #endif /* !FLLOC_DISABLED */

@@ -444,7 +444,7 @@ static void fllocCheck(void)
         while (rec != NULL) {
             checkForCorruption(rec);
             fprintf(gFile, "FLLOC: Memory leak detected: %p never freed; "
-                    "allocates from %s:%d\n",
+                    "allocated from %s:%d\n",
                     rec->real + gGuardSize_B, rec->file, rec->line);
             rec = rec->next;
             gAllGood = 0;

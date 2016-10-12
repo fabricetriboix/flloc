@@ -24,7 +24,27 @@ Follow the steps:
     $ ./run-tests.py    # Run the unit tests
     $ make install      # Install
 
-TODO: How to use flloc
+
+How to use flloc
+----------------
+
+In your source files, include `flloc.h`. Add `-lflloc` to the list of
+libraries you link against. Then run your executable. Flloc will print
+memory corruptions in the guard buffers (see below), and any detected
+memory leak when the executable exits.
+
+You can tune flloc behaviour by setting the `FLLOC_CONFIG` environment
+variable prior to running your executable thus:
+
+    $ export FLLOC_CONFIG="FILE=/path/to/flloc.log;GUARD=10000"
+
+Where `FILE` is the path to a file where flloc will write its output
+(default is to print to stderr), and `GUARD` is the size of the guard
+buffers (in bytes). Guard buffers are padding before and after each
+dynamically allocated block of memory; they are used to detect
+corruptions, where the code writes into memory outside what has been
+allocated. You can set it to 0 to disable this feature (default is
+1024).
 
 
 No warranties
