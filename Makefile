@@ -23,11 +23,5 @@ libflloc.a: flloc.o
 flloc.o: flloc.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-unit-test.o: unit-test.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-unit-test: unit-test.o libflloc.a
-	$(CC) $(CFLAGS) -o $@ $^
-
-unit-test-memcheck: unit-test.c flloc.c
+unit-test: unit-test.c libflloc.a
 	$(CC) $(CFLAGS) -o $@ $^

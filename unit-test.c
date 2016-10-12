@@ -65,6 +65,14 @@ int main()
     }
     fclose(f);
 
+    // Test realloc function
+    void* ptr = malloc(50);
+    if (NULL == ptr) {
+        abort();
+    }
+    ptr = realloc(ptr, 90);
+    free(ptr);
+
     muntrace();
     return 0;
 }
