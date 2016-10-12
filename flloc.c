@@ -452,6 +452,6 @@ static void fllocCheck(void)
     }
     pthread_mutex_unlock(&gMutex);
     if (gAllGood) {
-        fprintf(gFile, "FLLOC: No memory leaks nor corruptions detected\n");
+        fprintf(gFile, "FLLOC: No memory leak or corruption detected\n");
     }
 }

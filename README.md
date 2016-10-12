@@ -5,7 +5,11 @@ flloc: A dynamic memory debugger
 Introduction
 ------------
 
-flloc is dual-licensed under the GPLv3 and a commercial license. If you
+Flloc is a simple dynamic memory checker whose job is to check for
+memory leaks (in addition, it checks for memory corruptions around
+allocated memory blocks). Flloc works with multi-threaded executables.
+
+Flloc is dual-licensed under the GPLv3 and a commercial license. If you
 require the commercial license, please contact me: "Fabrice Triboix"
 <ftriboix-at-gmail-dot-com>.
 
@@ -19,9 +23,9 @@ Getting started
 
 Follow the steps:
 
-    $ $EDITOR Makefile
-    $ make
-    $ ./run-tests.py    # Run the unit tests
+    $ $EDITOR Makefile  # Edit to suit your environment
+    $ make              # Compile
+    $ ./run-tests.py    # Run unit tests
     $ make install      # Install
 
 
@@ -45,6 +49,14 @@ dynamically allocated block of memory; they are used to detect
 corruptions, where the code writes into memory outside what has been
 allocated. You can set it to 0 to disable this feature (default is
 1024).
+
+Flloc uses macros to redefine `malloc()` & co. There are multiple
+reasons for doing this instead of using hooks or overriding weak
+`malloc()` & co symbols:
+ - To keep it simple
+ - To check flloc itself for memory leaks
+ - To ignore memory leaks occuring outside your code, or even to
+   pinpoint accurately which part of your code should be checked
 
 
 No warranties
