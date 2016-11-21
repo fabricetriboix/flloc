@@ -24,8 +24,7 @@ Getting started
 Follow the steps:
 
     $ $EDITOR Makefile  # Edit to suit your environment
-    $ make              # Compile
-    $ ./run-tests.py    # Run unit tests
+    $ make test         # Compile & run unit tests
     $ make install      # Install
 
 

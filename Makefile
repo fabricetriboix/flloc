@@ -8,6 +8,9 @@ PREFIX := /usr/local
 
 all: clean libflloc.a unit-test
 
+test: all
+	./run-tests.py
+
 clean:
 	rm -f *.a *.o expected-*.txt test.txt unit-test mtrace.*
 
